@@ -1,0 +1,142 @@
+; Written by Dennis Skinner
+; Last updated: 2/12/2012
+; Version: 1.0
+;
+; Designed for PICAXE 08M
+;
+; Original code written by Jeremy Fright for the Arduino: http://diru.org/wordpress/hacking/xbox-360-rf-module-arduino/
+; I've done a little bit of tweaking, but lots of the foot work is on his site.
+;
+;Modified for PIC 12F629 by Bob Korn
+; Last updated: 10/15/2025
+;
+
+DEFINE  OSC     4
+
+;Pins
+syncbtn var GPIO.0  ;connect to pin 5 on xbox board (switch 1)
+datapin var GPIO.1     ;serial data on xbox board
+clockpin var GPIO.2 ;serial clock on xbox board
+
+input syncbtn
+
+;Vars
+writethis   var word  
+counter     var word  
+prev        var word  
+shift       var word  
+w4          var word  
+
+;Commands
+ledcmd     var word  
+animcmd    var word  
+synccmd    var word  
+ctrloff    var word  
+redblnk    var word  
+blnkoff    var word  
+startshift var word  
+
+ledcmd     = %0010000100 ;132
+animcmd    = %0010000101 ;133
+synccmd    = %0000000100 ;4
+ctrloff    = %0000001001 ;9
+redblnk    = %0011000001 ;193
+blnkoff    = %0011000000 ;192 
+startshift = %10000000000 ;1024
+
+    CMCON = 7
+    
+	high datapin
+	
+	;wait for startup (I had inconsistencies with 2 seconds)
+	pause 3000
+
+	writethis = ledcmd
+	gosub writedata
+	pause 50
+	writethis = animcmd
+	gosub writedata
+	pause 50
+	
+main:
+	pause 200
+		
+	;Button press
+	if syncbtn = 0 then
+	
+	;cheap debounce
+	pause 100  
+	if syncbtn = 0 then
+		;after the button is pushed, wait (about) half a second
+		; to see if it's still being pressed
+		pause 600
+		
+		;if it's still pressed, turn off controllers
+		if syncbtn = 0 then
+			;blink red
+			writethis = redblnk
+			gosub writedata
+			
+			;wait so we see the lights
+			pause 2000
+			
+			;turn off controlers
+			writethis = ctrloff
+			gosub writedata
+			
+			pause 50
+			;turn off blink
+			writethis = blnkoff
+			gosub writedata
+					
+		else
+			writethis = synccmd
+			gosub writedata
+		EndIf
+		
+		;let the user get their finger off the button
+		pause 3000
+	
+	EndIf	
+	EndIf
+	
+	goto main
+		
+writedata:
+	low datapin
+	prev = 1
+	
+	; start the shift var at 1024
+	;  We could start at 512 but we have the first shift we need to deal with
+	shift = startshift
+	
+	;loop over whatever is in writethis
+	; and write it to the data pin
+		for counter = 0 to 9
+			
+			; do all the shifting while we wait
+			; shift the bit
+			shift = shift / 2
+			w4 = writethis & shift
+			
+			do while prev = clockpin:loop	;waits for a change in clock
+			prev = clockpin
+			; should be after downward edge of clock,
+			;  so send bit of data now
+			
+			if  w4 != 0 then
+				high datapin
+			else
+				low datapin
+			EndIf
+			
+			do while prev = clockpin:loop ;detects upward edge of clock
+			prev = clockpin
+			 
+		next counter
+	
+	; stop data
+	high datapin
+	
+	return
+
